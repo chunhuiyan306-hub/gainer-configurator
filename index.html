@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gainer 铝框门动态选型系统</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; color: #333; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; background: #fff; padding: 30px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        h2 { text-align: center; color: #2c3e50; font-weight: 600; margin-bottom: 20px; letter-spacing: 1px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; font-weight: 500; margin-bottom: 8px; color: #555; font-size: 0.95em; }
+        select { width: 100%; padding: 10px; border: 1px solid #ccc; border-radius: 6px; font-size: 1em; appearance: none; background-color: #fafafa; }
+        select:disabled { background-color: #eee; cursor: not-allowed; color: #999; }
+        .result-box { margin-top: 30px; padding: 15px; background: #2c3e50; color: #fff; border-radius: 6px; font-family: monospace; font-size: 0.9em; white-space: pre-wrap; line-height: 1.5; }
+        .badge { display: inline-block; padding: 4px 8px; background: #e74c3c; color: white; border-radius: 4px; font-size: 0.8em; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>GAINER 铝框门级联配置器</h2>
+    <div class="badge">美国市场专版 (20mm 厚度校验)</div>
+
+    <div class="form-group">
+        <label for="frame">1. 框架型号 (Model)</label>
+        <select id="frame" onchange="updateForm()">
+            <option value="">-- 请选择框架 --</option>
+            <option value="GM090">GM090 (极窄边框, CNC铣型拉手)</option>
+            <option value="GM004">GM004 (极简门, 内嵌拉手)</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label for="craft">2. 表面工艺 (Surface Finish)</label>
+        <select id="craft" disabled onchange="updateColors()">
+            <option value="">-- 等待上级选择 --</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label for="color">3. 框架颜色 (Color)</label>
+        <select id="color" disabled onchange="generateCode()">
+            <option value="">-- 等待上级选择 --</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label for="infillType">4. 门芯材质 (Infill Material)</label>
+        <select id="infillType" disabled onchange="updateInfillOptions()">
+            <option value="">-- 等待上级选择 --</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label for="infillSpec">5. 材质规格 (Infill Specs)</label>
+        <select id="infillSpec" disabled onchange="generateCode()">
+            <option value="">-- 等待上级选择 --</option>
+        </select>
+    </div>
+
+    <div class="form-group">
+        <label for="handle">6. 拉手款式 (Handle)</label>
+        <select id="handle" disabled onchange="generateCode()">
+            <option value="">-- 等待上级选择 --</option>
+        </select>
+    </div>
+
+    <div class="result-box" id="result">
+// 你的专属 SKU 代码将在此生成
+等待完整配置...
+    </div>
+</div>
+
+<script>
+    // 这是核心逻辑数据库，工程师可以在这里自由修改或增加新的型号、颜色和规则
+    const database = {
+        "GM090": {
+            code: "GM090",
+            crafts: ["氧化", "喷油"],
+            colors: {
+                "氧化": { "YPF01": "喷细砂亚黑", "YPC03": "喷细砂银白", "YPD02": "喷细砂罗马灰" },
+                "喷油": { "PAE06": "极光白 (肤感)", "PAE02": "高光白 (金属)", "PAF01": "亚黑 (金属)" }
+            },
+            infillSpecs: {
+                "玻璃": { "G01": "超白玻璃 (4mm/5mm)", "G02": "超白单面玉砂夹胶 (4+4mm)" },
+                "岩板": { "S01": "Silk_blanco 丝绸白色 (4mm)", "A01": "Amaranto_natural 咖啡红 (4mm)" },
+                "木板": { "W01": "O7AR (8mm)", "W02": "FA84 (18mm - 警告:将超出门框厚度)" }
+            },
+            handles: { "CNC": "CNC 铣型拉手", "NONE": "无拉手" }
+        },
+        "GM004": {
+            code: "GM004",
+            crafts: ["氧化"],
+            colors: {
+                "氧化": { "YPF01": "喷细砂亚黑", "YPC03": "喷细砂银白" }
+            },
+            infillSpecs: {
+                "玻璃": { "G01": "超白玻璃 (5mm)", "G03": "超白双面玉砂 (4mm)" },
+                "皮革": { "L01": "H64144 (1mm)", "L02": "H64151 (1mm)" }
+            },
+            handles: { "MK097": "MK097 内嵌拉手" }
+        }
+    };
+
+    // 辅助函数：用于重置下级菜单，防止选择上级时遗留错误的下级选项
+    function resetSelects(ids) {
+        ids.forEach(id => {
+            const el = document.getElementById(id);
+            el.innerHTML = '<option value="">-- 等待上级选择 --</option>';
+            el.disabled = true;
+        });
+    }
+
+    // 当选择"框架"时触发
+    function updateForm() {
+        const frame = document.getElementById("frame").value;
+        resetSelects(['craft', 'color', 'infillType', 'infillSpec', 'handle']);
+
+        if (frame && database[frame]) {
+            const data = database[frame];
+            
+            // 渲染工艺选项
+            const craftSel = document.getElementById("craft");
+            craftSel.innerHTML = '<option value="">-- 请选择工艺 --</option>';
+            data.crafts.forEach(c => craftSel.add(new Option(c, c)));
+            craftSel.disabled = false;
+
+            // 渲染门芯大类
+            const typeSel = document.getElementById("infillType");
+            typeSel.innerHTML = '<option value="">-- 请选择门芯材质 --</option>';
+            Object.keys(data.infillSpecs).forEach(t => typeSel.add(new Option(t, t)));
+            typeSel.disabled = false;
+
+            // 渲染拉手
+            const handleSel = document.getElementById("handle");
+            handleSel.innerHTML = '<option value="">-- 请选择拉手 --</option>';
+            Object.entries(data.handles).forEach(([code, name]) => handleSel.add(new Option(name, code)));
+            handleSel.disabled = false;
+        }
+        generateCode();
+    }
+
+    // 当选择"工艺"时触发
+    function updateColors() {
+        const frame = document.getElementById("frame").value;
+        const craft = document.getElementById("craft").value;
+        resetSelects(['color']);
+
+        if (craft) {
+            const colorSel = document.getElementById("color");
+            colorSel.innerHTML = '<option value="">-- 请选择颜色 --</option>';
+            const colorData = database[frame].colors[craft];
+            Object.entries(colorData).forEach(([code, name]) => colorSel.add(new Option(`${code} ${name}`, code)));
+            colorSel.disabled = false;
+        }
+        generateCode();
+    }
+
+    // 当选择"门芯材质"时触发
+    function updateInfillOptions() {
+        const frame = document.getElementById("frame").value;
+        const type = document.getElementById("infillType").value;
+        resetSelects(['infillSpec']);
+
+        if (type) {
+            const specSel = document.getElementById("infillSpec");
+            specSel.innerHTML = '<option value="">-- 请选择规格 --</option>';
+            const specData = database[frame].infillSpecs[type];
+            Object.entries(specData).forEach(([code, name]) => specSel.add(new Option(name, code)));
+            specSel.disabled = false;
+        }
+        generateCode();
+    }
+
+    // 核心代码生成器
+    function generateCode() {
+        const vals = {
+            f: document.getElementById("frame").value,
+            c: document.getElementById("color").value,
+            i: document.getElementById("infillSpec").value,
+            h: document.getElementById("handle").value
+        };
+
+        const resultBox = document.getElementById("result");
+        
+        // 只有所有关键选项都选完，才生成最终的 SKU
+        if (vals.f && vals.c && vals.i && vals.h) {
+            const fullSku = `${vals.f}-${vals.c}-${vals.i}-${vals.h}`;
+            
+            // 针对特定超厚木板的警告逻辑
+            let warning = vals.i === "W02" ? "\n\n⚠️ 警告: 选中材质厚度可能导致开合受阻！请联系技术确认。" : "";
+            
+            resultBox.style.borderLeft = "4px solid #27ae60"; // 成功时显示绿边
+            resultBox.innerHTML = `✅ 配置完成 (SKU已生成):\n--------------------------\n产品代码: ${fullSku}\n--------------------------\n状态: 逻辑匹配成功，准许排期。${warning}`;
+        } else {
+            resultBox.style.borderLeft = "none";
+            resultBox.innerHTML = "// 你的专属 SKU 代码将在此生成\n等待完整配置...";
+        }
+    }
+</script>
+</body>
+</html>
